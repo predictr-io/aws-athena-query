@@ -1,0 +1,65 @@
+name: 'AWS Athena Query'
+description: 'Execute SQL queries on AWS Athena and fetch results with enforced LIMIT clause'
+author: 'predictr-io'
+
+branding:
+  icon: 'database'
+  color: 'orange'
+
+inputs:
+  # Required parameters
+  query:
+    description: 'SQL query to execute (LIMIT will be enforced on SELECT queries)'
+    required: true
+
+  database:
+    description: 'Athena database name'
+    required: true
+
+  # Optional parameters
+  workgroup:
+    description: 'Athena workgroup name (default: primary)'
+    required: false
+    default: 'primary'
+
+  output-location:
+    description: 'S3 location for query results (s3://bucket/path/) - required if workgroup does not have a default'
+    required: false
+
+  max-rows:
+    description: 'Maximum number of rows to return (enforced via LIMIT clause, default: 1000)'
+    required: false
+    default: '1000'
+
+  catalog:
+    description: 'Data catalog name (default: AwsDataCatalog)'
+    required: false
+    default: 'AwsDataCatalog'
+
+  wait-timeout-seconds:
+    description: 'Maximum time to wait for query completion in seconds (default: 300)'
+    required: false
+    default: '300'
+
+outputs:
+  query-execution-id:
+    description: 'Athena query execution ID'
+
+  state:
+    description: 'Final query state (SUCCEEDED, FAILED, CANCELLED)'
+
+  data-scanned-bytes:
+    description: 'Amount of data scanned by the query in bytes'
+
+  execution-time-ms:
+    description: 'Query execution time in milliseconds'
+
+  results:
+    description: 'Query results as JSON array of objects'
+
+  result-count:
+    description: 'Number of rows returned'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'

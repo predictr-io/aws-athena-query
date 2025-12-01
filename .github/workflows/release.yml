@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify dist/ is committed
+        run: |
+          if [ ! -f "dist/index.js" ]; then
+            echo "❌ Error: dist/index.js not found in repository"
+            echo ""
+            echo "You must build and commit dist/ before creating a release."
+            echo "Run these commands:"
+            echo "  npm install"
+            echo "  npm run build"
+            echo "  git add dist/"
+            echo "  git commit -m 'Build dist/ for release'"
+            echo "  git tag -f ${{ github.ref_name }}"
+            echo "  git push -f origin ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "✓ dist/index.js exists"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify build is up-to-date
+        run: |
+          npm run build
+          if ! git diff --quiet dist/; then
+            echo "❌ Error: dist/ is out of date"
+            echo ""
+            echo "The committed dist/ doesn't match the current source code."
+            echo "Run these commands to update:"
+            echo "  npm run build"
+            echo "  git add dist/"
+            echo "  git commit -m 'Update dist/ for release'"
+            echo "  git tag -f ${{ github.ref_name }}"
+            echo "  git push -f origin ${{ github.ref_name }}"
+            exit 1
+          fi
+          echo "✓ dist/ is up-to-date"
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "major_version=${VERSION%%.*}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+      - name: Update major version tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          MAJOR_VERSION="${{ steps.version.outputs.major_version }}"
+
+          # Delete the major version tag if it exists remotely
+          git push origin ":refs/tags/$MAJOR_VERSION" 2>/dev/null || true
+
+          # Create new major version tag pointing to current commit
+          git tag -f "$MAJOR_VERSION"
+          git push origin "$MAJOR_VERSION"
+
+          echo "✓ Updated $MAJOR_VERSION tag to point to ${{ steps.version.outputs.version }}"
