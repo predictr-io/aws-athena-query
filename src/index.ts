@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import * as fs from 'fs';
 import {
   AthenaClient,
   StartQueryExecutionCommand,
@@ -219,8 +220,17 @@ async function run(): Promise<void> {
     core.setOutput('state', state);
     core.setOutput('data-scanned-bytes', dataScanned.toString());
     core.setOutput('execution-time-ms', executionTime.toString());
-    core.setOutput('results', JSON.stringify(results));
     core.setOutput('result-count', results.length.toString());
+
+    // Use EOF delimiter for JSON output to prevent GitHub Actions expression parsing issues
+    // This ensures the JSON is treated as a literal string, not evaluated as an expression
+    const resultsJson = JSON.stringify(results);
+    if (process.env.GITHUB_OUTPUT) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `results<<EOF\n${resultsJson}\nEOF\n`);
+    } else {
+      // Fallback for local testing without GITHUB_OUTPUT
+      core.setOutput('results', resultsJson);
+    }
 
     core.info('✓ Action completed successfully');
   } catch (error) {

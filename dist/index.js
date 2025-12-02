@@ -44972,6 +44972,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
+const fs = __importStar(__nccwpck_require__(9896));
 const client_athena_1 = __nccwpck_require__(2204);
 /**
  * Enforce LIMIT clause on SELECT queries
@@ -45130,8 +45131,17 @@ async function run() {
         core.setOutput('state', state);
         core.setOutput('data-scanned-bytes', dataScanned.toString());
         core.setOutput('execution-time-ms', executionTime.toString());
-        core.setOutput('results', JSON.stringify(results));
         core.setOutput('result-count', results.length.toString());
+        // Use EOF delimiter for JSON output to prevent GitHub Actions expression parsing issues
+        // This ensures the JSON is treated as a literal string, not evaluated as an expression
+        const resultsJson = JSON.stringify(results);
+        if (process.env.GITHUB_OUTPUT) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `results<<EOF\n${resultsJson}\nEOF\n`);
+        }
+        else {
+            // Fallback for local testing without GITHUB_OUTPUT
+            core.setOutput('results', resultsJson);
+        }
         core.info('✓ Action completed successfully');
     }
     catch (error) {
