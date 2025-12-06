@@ -161,15 +161,16 @@ async function fetchQueryResults(
  * Main action entry point
  */
 async function run(): Promise<void> {
+  // Get inputs outside try block so they're available in catch for error summary
+  const query = core.getInput('query', { required: true });
+  const database = core.getInput('database', { required: true });
+  const workgroup = core.getInput('workgroup') || 'primary';
+  const outputLocation = core.getInput('output-location') || undefined;
+  const maxRows = parseInt(core.getInput('max-rows') || '1000', 10);
+  const catalog = core.getInput('catalog') || 'AwsDataCatalog';
+  const waitTimeout = parseInt(core.getInput('wait-timeout-seconds') || '300', 10);
+
   try {
-    // Get inputs
-    const query = core.getInput('query', { required: true });
-    const database = core.getInput('database', { required: true });
-    const workgroup = core.getInput('workgroup') || 'primary';
-    const outputLocation = core.getInput('output-location') || undefined;
-    const maxRows = parseInt(core.getInput('max-rows') || '1000', 10);
-    const catalog = core.getInput('catalog') || 'AwsDataCatalog';
-    const waitTimeout = parseInt(core.getInput('wait-timeout-seconds') || '300', 10);
 
     core.info(`Executing Athena query in database: ${database}`);
     core.info(`Workgroup: ${workgroup}`);
@@ -232,6 +233,55 @@ async function run(): Promise<void> {
       core.setOutput('results', resultsJson);
     }
 
+    // Calculate estimated cost (approximation: $5 per TB scanned)
+    const dataScannedGB = dataScanned / 1024 / 1024 / 1024;
+    const dataScannedTB = dataScannedGB / 1024;
+    const estimatedCost = dataScannedTB * 5;
+
+    // Build GitHub Step Summary
+    const summary = core.summary
+      .addHeading('AWS Athena Query Results')
+      .addTable([
+        [{data: 'Query Execution ID', header: true}, queryExecutionId],
+        [{data: 'Status', header: true}, `✅ ${state}`],
+        [{data: 'Database', header: true}, `${catalog}.${database}`],
+        [{data: 'Workgroup', header: true}, workgroup],
+        [{data: 'Execution Time', header: true}, `${executionTime.toLocaleString()} ms (${(executionTime / 1000).toFixed(2)}s)`],
+        [{data: 'Data Scanned', header: true}, `${dataScanned.toLocaleString()} bytes (${dataScannedGB.toFixed(3)} GB)`],
+        [{data: 'Estimated Cost', header: true}, `$${estimatedCost.toFixed(6)}`],
+        [{data: 'Rows Returned', header: true}, results.length.toLocaleString()],
+      ]);
+
+    // Add results table (first 10 rows)
+    if (results.length > 0) {
+      const previewRows = results.slice(0, 10);
+      const columnNames = Object.keys(previewRows[0]);
+
+      // Build table header
+      const tableHeader = columnNames.map(col => ({data: col, header: true}));
+
+      // Build table rows
+      const tableRows = previewRows.map(row =>
+        columnNames.map(col => String(row[col] ?? ''))
+      );
+
+      summary.addHeading('Query Results Preview (First 10 Rows)', 3);
+      summary.addTable([tableHeader, ...tableRows]);
+
+      if (results.length > 10) {
+        summary.addRaw(`\n*Showing 10 of ${results.length} total rows*\n`);
+      }
+    } else {
+      summary.addHeading('Query Results', 3);
+      summary.addRaw('*No rows returned*');
+    }
+
+    // Add query text
+    summary.addHeading('Query', 3);
+    summary.addCodeBlock(enforcedQuery, 'sql');
+
+    await summary.write();
+
     core.info('✓ Action completed successfully');
   } catch (error) {
     core.error('Action failed with error:');
@@ -261,11 +311,39 @@ async function run(): Promise<void> {
         }
       }
 
+      // Write failure summary to GitHub Step Summary
+      await core.summary
+        .addHeading('AWS Athena Query Results')
+        .addTable([
+          [{data: 'Status', header: true}, '❌ Failed'],
+          [{data: 'Database', header: true}, `${catalog}.${database}`],
+          [{data: 'Workgroup', header: true}, workgroup],
+          [{data: 'Error', header: true}, error.message],
+        ])
+        .addHeading('Query', 3)
+        .addCodeBlock(query, 'sql')
+        .write();
+
       core.setFailed(`Action failed: ${error.message}`);
     } else {
+      const errorMessage = 'An unknown error occurred - check logs for details';
+
+      // Write failure summary to GitHub Step Summary
+      await core.summary
+        .addHeading('AWS Athena Query Results')
+        .addTable([
+          [{data: 'Status', header: true}, '❌ Failed'],
+          [{data: 'Database', header: true}, `${catalog}.${database}`],
+          [{data: 'Workgroup', header: true}, workgroup],
+          [{data: 'Error', header: true}, errorMessage],
+        ])
+        .addHeading('Query', 3)
+        .addCodeBlock(query, 'sql')
+        .write();
+
       core.error(`Unknown error type: ${typeof error}`);
       core.error(`Error value: ${JSON.stringify(error, null, 2)}`);
-      core.setFailed('An unknown error occurred - check logs for details');
+      core.setFailed(errorMessage);
     }
   }
 }

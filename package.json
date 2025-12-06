@@ -1,6 +1,6 @@
 {
   "name": "aws-athena-query",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "GitHub Action to execute AWS Athena queries and fetch results",
   "main": "dist/index.js",
   "scripts": {
